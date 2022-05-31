@@ -33,10 +33,10 @@
 9) git checkout -b f2
 10) git commit
 11) git commit
-12) git checkout master
+12) git checkout main
 13) git checkout -b f3
 14) git commit
-15) git checkout master
+15) git checkout main
 16) git merge f3
 17) git merge f2
 18) git branch -f f3
