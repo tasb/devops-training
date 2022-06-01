@@ -1,0 +1,39 @@
+name: CalcLibWorkflow
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/Calculator/**'
+      - '.github/workflows/calc-lib.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/Calculator/**'
+      - '.github/workflows/calc-lib.yml'
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v2
+      with:
+        dotnet-version: 6.0.x
+    - name: Restore dependencies
+      run: dotnet restore
+    - name: Build
+      run: dotnet build --no-restore
+    - name: Test
+      run: dotnet test --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
+      
+    - name: Test Report
+      uses: dorny/test-reporter@v1
+      if: always()    # run this step even if previous step failed
+      with:
+        name: CalcLib Tests            # Name of the check run which will be created
+        path: '**/TestResults/*.trx'    # Path to test results
+        reporter: dotnet-trx        # Format of test results
