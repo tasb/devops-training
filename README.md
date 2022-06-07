@@ -72,12 +72,10 @@ Get access to the content used during sessions.
 2. [Continuous Planning](slides/session02.pdf)
 3. [Source Control as Source of Truth](slides/session03.pdf)
 4. [Continuous Testing](slides/session04.pdf)
-5. [Lab #1](labs/lab01.md)
-6. [Continuous Integration](slides/session06.pdf)
-7. [Continuous Delivery](slides/session07.pdf)
-8. [Infra as Code](slides/session08.pdf)
-9. [Secure DevOps](slides/session09.pdf)
-10. [Lab #2](labs/lab02.md)
+5. [Continuous Integration](slides/session06.pdf)
+6. [Continuous Delivery](slides/session07.pdf)
+7. [Infra as Code](slides/session08.pdf)
+8. [Secure DevOps](slides/session09.pdf)
 
 ## Labs
 

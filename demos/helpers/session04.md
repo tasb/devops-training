@@ -2,7 +2,7 @@
 
 ## 1. Unit Testing
 
-1) [] Create repo `moongy-devops-testing`
+1) Create repo `moongy-devops-calclib`
 2) Clone repo
 3) Create `src` folder
 4) `dotnet new classlib -o CalcLib`
@@ -37,3 +37,23 @@
 9) `dotnet test`
 10 `dotnet test --filter CalcTests_Prime --collect "XPlat Code Coverage" -r ./testresults`
 11) `reportgenerator -reports:"./testresults/XXXX/coverage.cobertura.xml" -targetdir:"./testresults/coveragereport_prime" -reporttypes:Html`
+
+## 3. Test Automation
+
+1) Create Action directly on GitHub Website
+2) Run to see tests running
+3) Add TestReport
+4) Check that workflow ran automatically
+5) Check Test Report
+
+## 4. Playwright quick demo
+
+1) `cd C:\work\playwright`
+2) npx playwright codegen wikipedia.org
+3) Copy content
+4) `node file.js`
+5) npx playwright codegen --device="iPhone 11" wikipedia.org
+6) `cd C:\work\demo.playwright`
+7) code .
+8) npx playwright test --config .\getting-started\playwright.config.ts
+9) npx playwright show-report
