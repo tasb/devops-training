@@ -14,7 +14,6 @@ On this lab you'll have an hands-on experience with git repos, creating pull req
 - [Create Pull Request](#create-pull-request)
 - [Clean Up Local Repo](#clean-up-local-repo)
 
-
 ## Getting Started
 
 Before your begin, please take another look on [prerequisites](../README.md#prerequisites) for your operating system.
@@ -65,7 +64,7 @@ You should get an output like the one on the following image.
 
 ![Repo history](images/lab01/image08.png "Repo history")
 
-Now let's confirm your project builds correctly. Run the following command to build all components. 
+Now let's confirm your project builds correctly. Run the following command to build all components.
 
 ```bash
 dotnet build
@@ -323,7 +322,7 @@ You may check that the title of your pull request is already set with you commit
 
 Recall that you added a link from your commit to your issue. Let's do it with your Pull Request too. Now that you are doing a final step toward reaching `main`branch, you may make the link and close the issue.
 
-Do close and link the issue with only one step, you may add a comment when you are creating your Pull Request stating that. Add `Closes #1` comment on your Pull Request. You'll see that when you enter `#` character you automatically have access to a list of issues to select from. After you enter the command, the `#1` becames a link direct to your issue.
+Do close and link the issue with only one step, you may add a comment when you are creating your Pull Request stating that. Add `Closes #1` comment on your Pull Request. You'll see that when you enter `#` character you automatically have access to a list of issues to select from. After you enter the command, the `#1` became a link direct to your issue.
 
 ![Create PR](images/lab01/image27.png "Create PR")
 
@@ -336,7 +335,6 @@ First, is about merge conflict. Pull requests automatically check if a merge con
 Second, your workflow starts to run automatically as expected and you need to wait until if finished successfully to proceed on your pull request.
 
 ![PR checks completed](images/lab01/image26.png "PR checks completed")
-
 
 If you navigate to your link you still see its status as Open. This is the expected behavior since the Pull Request was not completed yet. The issue is only closed after Pull Request is completed.
 
@@ -355,6 +353,28 @@ Finally, you may navigate to your issue and confirm that its state changed to cl
 ![Issue Closed](images/lab01/image29.png "Issue closed")
 
 ## Clean Up Local Repo
+
+You already clean up your remote repo but due to Git being a distributed version control system, your local repo didn't received any change automatically.
+
+First step, is to move again to `main` branch.
+
+```bash
+git checkout main
+```
+
+Now you need to update your branch with the last merge performed on remote side through Pull Request.
+
+```bash
+git pull
+```
+
+Last step is to keep your repo clean and ready to develop another improvement your code base. For that you need to delete the branch created to update main page title.
+
+```bash
+git branch -d topic/update-title
+```
+
+And it's done! You may repeat this process as needed to bring more value to your end user!
 
 ## Congratulations
 

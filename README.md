@@ -6,15 +6,13 @@ Navigate to <https://tasb.github.io/devops-training/> to have access a better ve
 
 ## Contents
 
-- [Training on DevOps Fundamental](#training-on-devops-fundamental)
-  - [Contents](#contents)
-  - [Prerequisites](#prerequisites)
-    - [Windows](#windows)
-    - [Ubuntu](#ubuntu)
-    - [macOS](#macos)
-  - [Slides](#slides)
-  - [Labs](#labs)
-  - [Feedback](#feedback)
+- [Prerequisites](#prerequisites)
+  - [Windows](#windows)
+  - [Ubuntu](#ubuntu)
+  - [macOS](#macos)
+- [Slides](#slides)
+- [Labs](#labs)
+- [Feedback](#feedback)
   
 ## Prerequisites
 

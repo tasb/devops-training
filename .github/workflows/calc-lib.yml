@@ -32,8 +32,8 @@ jobs:
       
     - name: Test Report
       uses: dorny/test-reporter@v1
-      if: always()    # run this step even if previous step failed
+      if: always()
       with:
-        name: CalcLib Tests            # Name of the check run which will be created
-        path: '**/TestResults/*.trx'    # Path to test results
-        reporter: dotnet-trx        # Format of test results
+        name: CalcLib Tests
+        path: '**/TestResults/*.trx'
+        reporter: dotnet-trx
