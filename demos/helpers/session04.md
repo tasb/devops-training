@@ -35,7 +35,7 @@
 7) `dotnet test`
 8) Add Theory methods
 9) `dotnet test`
-10 `dotnet test --filter CalcTests_Prime --collect "XPlat Code Coverage" -r ./testresults`
+10) `dotnet test --filter CalcTests_Prime --collect "XPlat Code Coverage" -r ./testresults`
 11) `reportgenerator -reports:"./testresults/XXXX/coverage.cobertura.xml" -targetdir:"./testresults/coveragereport_prime" -reporttypes:Html`
 
 ## 3. Test Automation

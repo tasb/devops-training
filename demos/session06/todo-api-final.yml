@@ -1,0 +1,40 @@
+name: TodoAPI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/TodoAPI/**'
+      - 'src/TodoAPI.Tests/**'
+      - '.github/workflows/todo-api.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/TodoAPI/**'
+      - 'src/TodoAPI.Tests/**'
+      - '.github/workflows/todo-api.yml'
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: ./.github/workflows/composite/build-test-publish #tasb/my-public-actions/build-test-publish@main
+      with:
+        mainProject: 'src/TodoAPI/TodoAPI.csproj'
+        testsProject: 'src/TodoAPI.Tests/TodoAPI.Tests.csproj'
+    
+    - name: Publish
+      if: github.event_name != 'pull_request'
+      run: |
+        dotnet publish --no-build src/TodoAPI/TodoAPI.csproj -o src/TodoAPI/publish
+
+    - uses: actions/upload-artifact@v3
+      if: github.event_name != 'pull_request'
+      with:
+        name: todo-api
+        path: src/TodoAPI/publish

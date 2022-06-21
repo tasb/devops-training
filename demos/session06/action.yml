@@ -1,0 +1,47 @@
+name: "Build and Test dotnet"
+description: "Builds dotnet code project and runs unit tests"
+
+inputs:
+  mainProject:
+    description: "Main code project"
+    required: true
+  testsProject:
+    description: "Tests project"
+    required: true
+  buildConfiguration:
+    description: "Build configuration"
+    default: "Debug"
+    required: false
+  
+runs:
+  using: "composite"
+  steps:
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: 6.0.x
+    
+    - name: Restore projects
+      shell: bash
+      run: |
+        dotnet restore ${{ inputs.mainProject }}
+        dotnet restore ${{ inputs.testsProject }}
+
+      
+    - name: Build projects
+      shell: bash
+      run: |
+        dotnet build --no-restore ${{ inputs.mainProject }} -c ${{ inputs.buildConfiguration }}
+        dotnet build --no-restore ${{ inputs.testsProject }} -c ${{ inputs.buildConfiguration }}
+
+    - name: Test
+      shell: bash
+      run: dotnet test --no-build ${{ inputs.testsProject }} --verbosity normal --logger "trx;LogFileName=test-results.trx"
+      
+    - name: Test Report
+      uses: dorny/test-reporter@v1
+      if: always()
+      with:
+        name: Tests Results
+        path: '**/TestResults/*.trx'
+        reporter: dotnet-trx
