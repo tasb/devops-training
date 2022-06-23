@@ -1,0 +1,106 @@
+name: TodoWebapp
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/TodoWebapp/**'
+      - '.github/workflows/todo-webapp.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/TodoWebapp/**'
+      - '.github/workflows/todo-webapp.yml'
+
+env:
+  AZURE_WEBAPP_NAME: "tasb-tado-app"
+  ARTIFACT_NAME: "todo-webapp"
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v2
+      with:
+        dotnet-version: 6.0.x
+    - name: Restore dependencies
+      run: |
+        dotnet restore src/TodoWebapp/TodoWebapp.csproj
+    
+    - name: Build
+      run: |
+        dotnet build --no-restore src/TodoWebapp/TodoWebapp.csproj
+    
+    - name: Publish
+      if: github.event_name != 'pull_request'
+      run: |
+        dotnet publish --no-build src/TodoWebapp/TodoWebapp.csproj -o src/TodoWebapp/publish
+
+    - uses: actions/upload-artifact@v3
+      if: github.event_name != 'pull_request'
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: src/TodoWebapp/publish
+
+  uat:
+    if: github.event_name != 'pull_request'
+    environment: 
+      name: uat
+      url: ${{ steps.uat-deploy.outputs.webapp-url }}
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ./todo-app
+    
+    - uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: 'Azure webapp deploy - UAT'
+      id: uat-deploy
+      uses: azure/webapps-deploy@v2
+      with: 
+        app-name: ${{ env.AZURE_WEBAPP_NAME }} # Replace with your app name
+        package: ./todo-app
+        slot-name: uat
+    
+    - name: logout
+      run: |
+        az logout
+
+  prod:
+    if: github.event_name != 'pull_request'
+    environment: 
+      name: prod
+      url: ${{ steps.prod-deploy.outputs.webapp-url }}
+    runs-on: ubuntu-latest
+    needs: uat
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ./todo-api
+    
+    - uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: 'Azure webapp deploy - PROD'
+      id: prod-deploy
+      uses: azure/webapps-deploy@v2
+      with: 
+        app-name: ${{ env.AZURE_WEBAPP_NAME }} # Replace with your app name
+        package: ./todo-api
+    
+    - name: logout
+      run: |
+        az logout
