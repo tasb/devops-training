@@ -1,0 +1,5 @@
+rgName = "todoapp-demo"
+appName = "todo-webapp"
+apiName = "todo-api"
+dbName = "my-tododb"
+dbAdmin = "postgres"

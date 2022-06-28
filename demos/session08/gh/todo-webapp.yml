@@ -1,0 +1,211 @@
+name: TodoWebapp
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/TodoWebapp/**'
+      - '.github/workflows/todo-webapp.yml'
+      - 'deploy/terraform/todo-webapp/**'
+
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/TodoWebapp/**'
+      - '.github/workflows/todo-webapp.yml'
+
+env:
+  ARTIFACT_NAME: "todo-webapp"
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v2
+      with:
+        dotnet-version: 6.0.x
+    - name: Restore dependencies
+      run: |
+        dotnet restore src/TodoWebapp/TodoWebapp.csproj
+    
+    - name: Build
+      run: |
+        dotnet build --no-restore src/TodoWebapp/TodoWebapp.csproj
+    
+    - name: Publish
+      if: github.event_name != 'pull_request'
+      run: |
+        dotnet publish --no-build src/TodoWebapp/TodoWebapp.csproj -o src/TodoWebapp/publish
+
+    - uses: actions/upload-artifact@v3
+      if: github.event_name != 'pull_request'
+      with:
+        name: todo-webapp
+        path: src/TodoWebapp/publish
+
+    - uses: actions/upload-artifact@v3
+      if: github.event_name != 'pull_request'
+      with:
+        name: ${{ env.ARTIFACT_NAME }}-iac
+        path: deploy/terraform/todo-webapp
+
+  uat:
+    if: github.event_name != 'pull_request'
+    environment: 
+      name: uat
+      url: ${{ steps.uat-deploy.outputs.webapp-url }}
+    runs-on: ubuntu-latest
+    needs: build
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ./todo-app
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}-iac
+        path: ./terraform
+    
+    - uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+
+    - name: terraform init
+      run: |
+        cd ./terraform
+        terraform init -backend-config="key=todoapp.webapp.uat.tfstate"
+
+    - name: terraform validate
+      run: |
+        cd ./terraform
+        terraform validate
+    
+    - name: terraform plan
+      id: tfplan
+      run: |
+        cd ./terraform
+        terraform plan -var="env=uat"
+
+    - name: Terraform Plan Status
+      if: steps.tfplan.outcome == 'failure'
+      run: exit 1
+
+    - name: terraform apply
+      run: |
+        cd ./terraform
+        terraform apply -var="env=uat" -auto-approve
+        echo "WEBAPP_NAME=$(terraform output -raw webappName)" >> $GITHUB_ENV
+        echo "WEBAPI_URL=$(terraform output -raw webapiUrl)" >> $GITHUB_ENV
+
+    - name: 'Azure webapp deploy - UAT'
+      id: uat-deploy
+      uses: azure/webapps-deploy@v2
+      with: 
+        app-name: ${{ env.WEBAPP_NAME }}
+        package: ./todo-app
+    
+    - uses: azure/appservice-settings@v1
+      with:
+        app-name: ${{ env.WEBAPP_NAME }}
+        mask-inputs: false
+        app-settings-json: '[{"name": "Services__TodoAPI","value": "http://${{ env.WEBAPI_URL }}/todos","slotSetting": true}]'
+      id: settings
+
+    - name: logout
+      run: |
+        az logout
+
+  prod:
+    if: github.event_name != 'pull_request'
+    environment: 
+      name: prod
+      url: ${{ steps.prod-deploy.outputs.webapp-url }}
+    runs-on: ubuntu-latest
+    needs: uat
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ./todo-app
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}-iac
+        path: ./terraform
+    
+    - uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+
+    - name: terraform init
+      run: |
+        cd ./terraform
+        terraform init -backend-config="key=todoapp.webapp.prod.tfstate"
+
+    - name: terraform validate
+      run: |
+        cd ./terraform
+        terraform validate
+    
+    - name: terraform plan
+      id: tfplan
+      run: |
+        cd ./terraform
+        terraform plan -var="env=prod"
+
+    - name: Terraform Plan Status
+      if: steps.tfplan.outcome == 'failure'
+      run: exit 1
+
+    - name: terraform apply
+      run: |
+        cd ./terraform
+        terraform apply -var="env=prod" -auto-approve
+        echo "WEBAPP_NAME=$(terraform output -raw webappName)" >> $GITHUB_ENV
+        echo "WEBAPI_URL=$(terraform output -raw webapiUrl)" >> $GITHUB_ENV
+
+    - name: 'Azure webapp deploy - PROD'
+      id: prod-deploy
+      uses: azure/webapps-deploy@v2
+      with: 
+        app-name: ${{ env.WEBAPP_NAME }}
+        package: ./todo-app
+    
+    - uses: azure/appservice-settings@v1
+      with:
+        app-name: ${{ env.WEBAPP_NAME }}
+        mask-inputs: false
+        app-settings-json: '[{"name": "Services__TodoAPI","value": "http://${{ env.WEBAPI_URL }}/todos","slotSetting": true}]'
+      id: settings
+
+    - name: logout
+      run: |
+        az logout
