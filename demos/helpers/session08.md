@@ -10,7 +10,7 @@
 6) Add use_wrong_property = true
 7) Change resource storage name
 8) terraform validate
-9) Fix 
+9) Fix
 10) terraform validate
 11) terraform plan
 12) terraform apply
