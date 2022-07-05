@@ -14,7 +14,6 @@ On this lab you'll complete to create your full CI/CD pipeline that will deploy 
 - [Run your pipeline](#run-your-pipeline)
 - [Enable security tools](#enable-security-tools)
 - [Create SAST pipeline](#create-SAST-pipeline)
-- [Clean up your resources](#clean-up-your-resources)
 
 ## Prerequisites
 
@@ -269,7 +268,7 @@ output "dbAddress" {
 }
 ```
 
-Finally, let's create `main.tf` where you define the resources to be created, uses variables defined previously and set outputs at the end of the execution. 
+Finally, let's create `main.tf` where you define the resources to be created, uses variables defined previously and set outputs at the end of the execution.
 
 The file must have the following content and you need to pay attention where you need to replace `<your-prefix>` with your unique prefix.
 
@@ -287,7 +286,7 @@ provider "azurerm" {
   features {}
 }
 
-# Creates a Resource Group to group the followinf resources
+# Creates a Resource Group to group the following resources
 resource "azurerm_resource_group" "rg" {
   name     = "${var.appName}-${var.appServiceName}-${var.env}-rg"
   location = var.location
@@ -413,7 +412,7 @@ output "webapiUrl" {
 }
 ```
 
-Finally, let's create `main.tf` where you define the resources to be created, uses variables defined previously and set outputs at the end of the execution. 
+Finally, let's create `main.tf` where you define the resources to be created, uses variables defined previously and set outputs at the end of the execution.
 
 The file must have the following content and you need to pay attention where you need to replace `<your-prefix>` with your unique prefix.
 
@@ -467,10 +466,642 @@ Let's proceed to create GitHub Workflows that will run Terraform commands during
 
 ## Update GitHub workflows
 
+At the end of this step, you will have 2 GitHub Workflows for each application component: Todo Webapp and Todo API.
+
+On each workflow you will have 3 stages: Build, Deploy to staging and Deploy to Production.
+
+On each Deploy stage you will not only deploy your app but you will use Terraform to create and validate your infra structure.
+
+First, if you already have the workflow created on Lab 01, please delete the file.
+
+Now, you may create a file called `todo-api.yml` on folder `.github/workflows`.
+
+Let's add the content of the file, block by block. Recall that yaml uses whitespaces as delimiters so add these blocks of code carefully into your file.
+
+First, you need to add the name, the triggers, and global variables for this workflow.
+
+```yaml
+name: TodoAPI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/TodoAPI/**'
+      - 'src/TodoAPI.Tests/**'
+      - '.github/workflows/todo-api.yml'
+      - 'deploy/terraform/todo-api/**'
+
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/TodoAPI/**'
+      - 'src/TodoAPI.Tests/**'
+      - '.github/workflows/todo-api.yml'
+
+env:
+  ARTIFACT_NAME: "todo-api"
+
+```
+
+On this block you set the trigger to be on any push to `main` branch and on any pull request that have `main` branch as target.
+
+The list of paths makes the trigger to run only when there are changes on files that match those regular expressions.
+
+Then let's add the `build` stage to build, run your tests and publish your app package and Terraform scripts.
+
+```yaml
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: 6.0.x
+    
+    - name: Restore projects
+      shell: bash
+      run: |
+        dotnet restore src/TodoAPI/TodoAPI.csproj
+        dotnet restore src/TodoAPI.Tests/TodoAPI.Tests.csproj
+
+    - name: Build projects
+      shell: bash
+      run: |
+        dotnet build --no-restore src/TodoAPI/TodoAPI.csproj -c Debug
+        dotnet build --no-restore src/TodoAPI.Tests/TodoAPI.Tests.csproj -c Debug
+
+    - name: Test
+      shell: bash
+      run: dotnet test --no-build src/TodoAPI.Tests/TodoAPI.Tests.csproj--verbosity normal --logger "trx;LogFileName=test-results.trx"
+      
+    - name: Test Report
+      uses: dorny/test-reporter@v1
+      if: always()
+      with:
+        name: Tests Results
+        path: '**/TestResults/*.trx'
+        reporter: dotnet-trx
+    
+    - name: Publish
+      if: github.event_name != 'pull_request'
+      run: |
+        dotnet publish --no-build src/TodoAPI/TodoAPI.csproj -o src/TodoAPI/publish
+
+    - uses: actions/upload-artifact@v3
+      if: github.event_name != 'pull_request'
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: src/TodoAPI/publish
+
+    - uses: actions/upload-artifact@v3
+      if: github.event_name != 'pull_request'
+      with:
+        name: ${{ env.ARTIFACT_NAME }}-iac
+        path: deploy/terraform/todo-api
+
+```
+
+Look at last 3 actions and check that all of them as the following line: `if: github.event_name != 'pull_request'`.
+
+This condition will make this actions to run only if the trigger that made the workflow run is not a pull request since you only publish your app when you complete the pull request and merge into `main` branch.
+
+Next step is to create the stage to deploy to staging environment.
+
+```yaml
+  staging:
+    if: github.event_name != 'pull_request'
+    environment: 
+      name: stg
+      url: ${{ steps.stg-deploy.outputs.webapp-url }}
+    runs-on: ubuntu-latest
+    needs: build
+```
+
+On this block you do several configurations:
+
+- Set condition for this stage only run when trigger is not from a pull request (`if` property)
+- Links this stage with the environment configured before on your repo (`environment` block)
+  - `url` property on this block is an UI configuration that will put a link on GitHub Actions interface for you to directly navigate to your app
+- Create dependency with previous state creating an workflow with sequence (`needs` property)
+
+```yaml
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ./todo-api
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}-iac
+        path: ./terraform
+    
+    - uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+```
+
+On this block you are setting up environment variables that will be needed for Terraform scripts to run and use Azure Storage as the backend provider.
+
+Recall that when you use `${{ secrets.ARM_CLIENT_ID }}` you're getting the values that you defined on the secrets configured on the repo level.
+
+```yaml
+    - uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+
+    - name: terraform init
+      run: |
+        cd ./terraform
+        terraform init -backend-config="key=todoapp.webapi.stg.tfstate"
+
+    - name: terraform validate
+      run: |
+        cd ./terraform
+        terraform validate
+    
+    - name: terraform plan
+      id: tfplan
+      run: |
+        cd ./terraform
+        terraform plan -var="dbPassword=${{ secrets.DB_PASSWORD}}" -var="env=stg"
+
+    - name: Terraform Plan Status
+      if: steps.tfplan.outcome == 'failure'
+      run: exit 1
+
+    - name: terraform apply
+      run: |
+        cd ./terraform
+        terraform apply -var="dbPassword=${{ secrets.DB_PASSWORD}}" -var="env=stg" -auto-approve
+        echo "WEBAPP_NAME=$(terraform output -raw webappName)" >> $GITHUB_ENV
+        echo "DB_ADDRESS=$(terraform output -raw dbAddress)" >> $GITHUB_ENV
+
+```
+
+Now you're setting the actions to run your Terraform scripts. Check that you're performing the common loop on Terraform: `init` > `validate` > `plan` > `apply`.
+
+Additionally on the action called `Terraform Plan Status` you're setting an automatic gate that will look into the outcome of the `plan` phase. If a failure is spotted then your workflow will exit with an error.
+
+With this approach you only deploy your application into your expected infrastructure and if anything is wrong with it you will not continue your CD process.
+
+The last two lines of the `apply` action are to set the outputs defined on your Terraform scripts as environment variables to be used to configure your application.
+
+Finally you will deploy your application on Staging environment.
+
+```yaml
+    - name: 'Azure webapp deploy - Staging'
+      id: stg-deploy
+      uses: azure/webapps-deploy@v2
+      with: 
+        app-name: ${{ env.WEBAPP_NAME }}
+        package: ./todo-api
+
+    - name: 'Configure azure webapp - Staging'
+      uses: azure/appservice-settings@v1
+      with:
+        app-name: ${{ env.WEBAPP_NAME }}
+        mask-inputs: false
+        app-settings-json: '[{"name": "ConnectionStrings__TodosDb","value": "Server=${{ env.DB_ADDRESS }};Database=TodoDB;Port=5432;User Id=postgres;Password=${{ secrets.DB_PASSWORD }};Ssl Mode=VerifyFull;","slotSetting": true}]'
+      id: settings
+
+    - name: logout
+      run: |
+        az logout
+```
+
+On this last block you execute 3 actions:
+
+- `Azure webapp deploy - Staging`: will deploy your package (created on `build` stage) into App Service on Azure
+- `Configure azure webapp - Staging`: will configure your application to use the database just created. Take a look on `${{ env.DB_ADDRESS }}` where you're using the variables set on `apply` phase that were gather by Terraform as outputs
+- `logout`: even GitHub Runners are deleted after each execution is always a best practice to logout from your Azure account to prevent any security risks.
+
+Now let's add the final stage to deploy to your production environment.
+
+```yaml
+
+  prod:
+    if: github.event_name != 'pull_request'
+    environment: 
+      name: prod
+      url: ${{ steps.prod-deploy.outputs.webapp-url }}
+    
+    runs-on: ubuntu-latest
+    needs: stg
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ./todo-api
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}-iac
+        path: ./terraform
+    
+    - uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+
+    - name: terraform init
+      run: |
+        cd ./terraform
+        terraform init -backend-config="key=todoapp.webapi.prod.tfstate"
+
+    - name: terraform validate
+      run: |
+        cd ./terraform
+        terraform validate
+    
+    - name: terraform plan
+      id: tfplan
+      run: |
+        cd ./terraform
+        terraform plan -var="dbPassword=${{ secrets.DB_PASSWORD}}" -var="env=prod"
+
+    - name: Terraform Plan Status
+      if: steps.tfplan.outcome == 'failure'
+      run: exit 1
+
+    - name: terraform apply
+      id: terraform
+      run: |
+        cd ./terraform
+        terraform apply -var="dbPassword=${{ secrets.DB_PASSWORD}}" -var="env=prod" -auto-approve
+        echo "WEBAPP_NAME=$(terraform output -raw webappName)" >> $GITHUB_ENV
+        echo "DB_ADDRESS=$(terraform output -raw dbAddress)" >> $GITHUB_ENV
+
+    - name: 'Azure webapp deploy - Prod'
+      id: prod-deploy
+      uses: azure/webapps-deploy@v2
+      with: 
+        app-name: ${{ env.WEBAPP_NAME }} # Replace with your app name
+        package: ./todo-api
+
+    - name: 'Configure azure webapp - Prod'
+      uses: azure/appservice-settings@v1
+      with:
+        app-name: ${{ env.WEBAPP_NAME }}
+        mask-inputs: false
+        app-settings-json: '[{"name": "ConnectionStrings__TodosDb","value": "Server=${{ env.DB_ADDRESS }};Database=TodoDB;Port=5432;User Id=postgres;Password=${{ secrets.DB_PASSWORD}}; Ssl Mode=VerifyFull;","slotSetting": true}]'
+      id: settings
+    
+    - name: logout
+      run: |
+        az logout
+```
+
+Take a look at this piece of code and check how similar is with staging deployment. This is a best practice since you have a common process for both environment and more important you're using always the same packages for your application and for your Terraform scripts.
+
+Since the steps are pretty the same, this can be a great candidate to set up a [GitHub Composite Action](https://docs.github.com/en/actions/creating-actions/creating-a-composite-action). If you have time, take a look on the link and try to implement that on your repo.
+
+Now, let's create the Github workflow for your webapp. Create a file named `todo-webapp.yml` on folder `.github/workflows` with following content.
+
+```yaml
+name: TodoWebapp
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/TodoWebapp/**'
+      - '.github/workflows/todo-webapp.yml'
+      - 'deploy/terraform/todo-webapp/**'
+
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/TodoWebapp/**'
+      - '.github/workflows/todo-webapp.yml'
+
+env:
+  ARTIFACT_NAME: "todo-webapp"
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v2
+      with:
+        dotnet-version: 6.0.x
+    - name: Restore dependencies
+      run: |
+        dotnet restore src/TodoWebapp/TodoWebapp.csproj
+    
+    - name: Build
+      run: |
+        dotnet build --no-restore src/TodoWebapp/TodoWebapp.csproj
+    
+    - name: Publish
+      if: github.event_name != 'pull_request'
+      run: |
+        dotnet publish --no-build src/TodoWebapp/TodoWebapp.csproj -o src/TodoWebapp/publish
+
+    - uses: actions/upload-artifact@v3
+      if: github.event_name != 'pull_request'
+      with:
+        name: todo-webapp
+        path: src/TodoWebapp/publish
+
+    - uses: actions/upload-artifact@v3
+      if: github.event_name != 'pull_request'
+      with:
+        name: ${{ env.ARTIFACT_NAME }}-iac
+        path: deploy/terraform/todo-webapp
+
+  staging:
+    if: github.event_name != 'pull_request'
+    environment: 
+      name: stg
+      url: ${{ steps.stg-deploy.outputs.webapp-url }}
+    runs-on: ubuntu-latest
+    needs: build
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ./todo-app
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}-iac
+        path: ./terraform
+    
+    - uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+
+    - name: terraform init
+      run: |
+        cd ./terraform
+        terraform init -backend-config="key=todoapp.webapp.stg.tfstate"
+
+    - name: terraform validate
+      run: |
+        cd ./terraform
+        terraform validate
+    
+    - name: terraform plan
+      id: tfplan
+      run: |
+        cd ./terraform
+        terraform plan -var="env=stg"
+
+    - name: Terraform Plan Status
+      if: steps.tfplan.outcome == 'failure'
+      run: exit 1
+
+    - name: terraform apply
+      run: |
+        cd ./terraform
+        terraform apply -var="env=stg" -auto-approve
+        echo "WEBAPP_NAME=$(terraform output -raw webappName)" >> $GITHUB_ENV
+        echo "WEBAPI_URL=$(terraform output -raw webapiUrl)" >> $GITHUB_ENV
+
+    - name: 'Azure webapp deploy - Staging'
+      id: stg-deploy
+      uses: azure/webapps-deploy@v2
+      with: 
+        app-name: ${{ env.WEBAPP_NAME }}
+        package: ./todo-app
+    
+    - name: 'Configure azure webapp - Staging'
+      uses: azure/appservice-settings@v1
+      with:
+        app-name: ${{ env.WEBAPP_NAME }}
+        mask-inputs: false
+        app-settings-json: '[{"name": "Services__TodoAPI","value": "http://${{ env.WEBAPI_URL }}/todos","slotSetting": true}]'
+      id: settings
+
+    - name: logout
+      run: |
+        az logout
+
+  prod:
+    if: github.event_name != 'pull_request'
+    environment: 
+      name: prod
+      url: ${{ steps.prod-deploy.outputs.webapp-url }}
+    runs-on: ubuntu-latest
+    needs: stg
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}
+        path: ./todo-app
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: ${{ env.ARTIFACT_NAME }}-iac
+        path: ./terraform
+    
+    - uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+
+    - name: terraform init
+      run: |
+        cd ./terraform
+        terraform init -backend-config="key=todoapp.webapp.prod.tfstate"
+
+    - name: terraform validate
+      run: |
+        cd ./terraform
+        terraform validate
+    
+    - name: terraform plan
+      id: tfplan
+      run: |
+        cd ./terraform
+        terraform plan -var="env=prod"
+
+    - name: Terraform Plan Status
+      if: steps.tfplan.outcome == 'failure'
+      run: exit 1
+
+    - name: terraform apply
+      run: |
+        cd ./terraform
+        terraform apply -var="env=prod" -auto-approve
+        echo "WEBAPP_NAME=$(terraform output -raw webappName)" >> $GITHUB_ENV
+        echo "WEBAPI_URL=$(terraform output -raw webapiUrl)" >> $GITHUB_ENV
+
+    - name: 'Azure webapp deploy - Prod'
+      id: prod-deploy
+      uses: azure/webapps-deploy@v2
+      with: 
+        app-name: ${{ env.WEBAPP_NAME }}
+        package: ./todo-app
+    
+    - name: 'Configure azure webapp - Prod'
+      uses: azure/appservice-settings@v1
+      with:
+        app-name: ${{ env.WEBAPP_NAME }}
+        mask-inputs: false
+        app-settings-json: '[{"name": "Services__TodoAPI","value": "http://${{ env.WEBAPI_URL }}/todos","slotSetting": true}]'
+      id: settings
+
+    - name: logout
+      run: |
+        az logout
+```
+
+Take your time to have a look on this file and see how similar if with the previous one. Again, a great opportunity to explore [GitHub Composite Action](https://docs.github.com/en/actions/creating-actions/creating-a-composite-action).
+
 ## Run your pipeline
+
+It's time to run your CI/CD pipeline. To do so, you need to push your changes to remote repo. Start to add all your changes to be included on next commit.
+
+```bash
+git add -A
+```
+
+Then create your commit on your local repo.
+
+```bash
+git commit -m "Added iac scripts"
+```
+
+Then push your changes to remote repo.
+
+```bash
+git push --set-upstream origin add-iac
+```
+
+Now navigate to GitHub web interface, select your repo and you'll get the notification that a new branch was added and updated on your repo and you may create a pull request.
+
+Proceed with pull request creation (if you have doubts on the process you may check [Create Pull Request](lab01.md#create-pull-request) from [Lab01](lab01.md)).
+
+As soon as you create the pull request, build stages of both GitHub Workflows will start to run and you may confirm that will finish successfully.
+
+Then you may complete your pull request to propagate your changes to `main` branch and your full CI/CD.
+
+To check your workflow running, you may click on `Actions` menu on top. This workflow may take some time to run since your creating all the infrastructure.
+
+Because you set the need of a reviewer on Production environment, your both pipelines will run until the end on `stg` stage. You may seen a screen like this.
+
+![GitHub Actions Staging](./images/lab02/image07.png "GitHub Actions Staging")
+
+Now you can navigate to your application running on Staging environment by click on the link below `stg` stage and check everything is working on that environment. You need to perform this steps on `Todo Webapp` workflow.
+
+After testing you feel comfortable to allow Production deployment. To do that, click on `Review deployments` button to approve that stage to run.
+
+Click on the checkbox near the name of your environment and click on `Approve and deploy` button as stated on next image.
+
+![Approve production deployment](./images/lab02/image08.png "Approve production deployment")
+
+This stage will take several minutes to finish since you are creating your infrastructure in Azure.
+
+You need to repeat this stepson both workflows.
+
+After stage is finished, you may navigate to our production environment by clicking on the url under `prod` stage on your workflow.
+
+![GitHub Actions Production](./images/lab02/image09.png "GitHub Actions Production")
+
+Take a little while a navigate [Azure Portal](https://portal.azure.com/)  and check all resources you just created. Since all are sharing the same subscription you'll see a lot of resources created by all attendees, so please interact only with your resources.
 
 ## Enable security tools
 
-## Create SAST pipelinee
+Since you have your CI/CD pipeline ready and making deploy directly to your Azure infrastructure, is important to have security checks to keep your application code as secure as possible.
 
-## Clean up your resources
+Let's enable automatic check provided by GitHub about your dependencies graph and secret scanning.
+
+Navigate to `Settings` > `Code security and analysis` and enable the following checks.
+
+- Dependency graph
+- Dependabot alerts
+- Dependabot security updates
+- Secret scanning
+
+You should have a configuration like. Be aware that `Code scanning` should be disable since you will only enable it on next step.
+
+![GitHub Security checks](./images/lab02/image10.png "GitHub Security checks]")
+
+As soon as you enable it, GitHub automatically starts scanning your dependencies to find any known vulnerabilities.
+
+To get the scanning report navigate to `Insights` > `Dependency graph` and take a look on the amount of dependencies your code have, since this feature scans recursively all your dependencies.
+
+## Create SAST pipeline
+
+Last step to have your Secure DevOps approach on your CI/CD pipeline is to perform a SAST scan on your code on any change you produce. We will use GitHub Code QL integration to easily set up this scan for you.
+
+To set up the scanning navigate to `Security` menu and click on `Set up code scanning`. On new screen click on green button `Configure CodeQL alerts`.
+
+GitHub will automatically verify your repo and check which languages are available on your source code and set up the workflow to scan that languages.
+
+You may confirm that by check line 35 as you'll see this: `language: [ 'csharp', 'javascript' ]`
+
+To save this file you need to commit the changes to a new branch using GitHub web interface. To do that click on `Start commit` button on top right and select `Create a new branch for this commit and start a pull request` option, setting `add-codeql` as branch name.
+
+To finish the commit, click on `Propose changes` button.
+
+![Add Code QL workflow](./images/lab02/image11.png "Add Code QL workflow")
+
+Now if you check pull request you just created you may see that this new workflow is running and check your code for some vulnerabilities.
+
+Complete your pull request to add this new workflows on your `main` branch.
+
+This Code QL scanning will populate code scanning alerts on your repo and you have a list of them navigating to `Security` > `Code scanning alerts`.
+
+On this case, you may have access to 3 high priority alerts on your Javascript code.
+
+![Code scanning alerts](./images/lab02/image12.png "Code scanning alerts")
+
+You may click on each of them to have better understanding about this alerts and on this case check that all of the alerts are on JQuery code.
+
+Now you've everything set up and your CI/CD pipeline is ready to be used on a daily basis!
+
+You can now make any change on your homepage (`src/TodoWebapp/Views/Shared/_Layout.cshtml`) and see your pipelines running and te new homepage being available on both Staging and Production environments.
+
+Congratulations! You just finished last lab on this DevOps Fundamentals training!
