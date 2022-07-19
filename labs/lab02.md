@@ -13,7 +13,8 @@ On this lab you'll complete to create your full CI/CD pipeline that will deploy 
 - [Update GitHub workflows](#update-github-workflows)
 - [Run your pipeline](#run-your-pipeline)
 - [Enable security tools](#enable-security-tools)
-- [Create SAST pipeline](#create-SAST-pipeline)
+- [Create SAST pipeline](#create-sast-pipeline)
+- [Clean up resources](#clean-up-resources)
 
 ## Prerequisites
 
@@ -539,7 +540,7 @@ jobs:
 
     - name: Test
       shell: bash
-      run: dotnet test --no-build src/TodoAPI.Tests/TodoAPI.Tests.csproj--verbosity normal --logger "trx;LogFileName=test-results.trx"
+      run: dotnet test --no-build src/TodoAPI.Tests/TodoAPI.Tests.csproj --verbosity normal --logger "trx;LogFileName=test-results.trx"
       
     - name: Test Report
       uses: dorny/test-reporter@v1
@@ -575,7 +576,7 @@ This condition will make this actions to run only if the trigger that made the w
 Next step is to create the stage to deploy to staging environment.
 
 ```yaml
-  staging:
+  stg:
     if: github.event_name != 'pull_request'
     environment: 
       name: stg
@@ -838,7 +839,7 @@ jobs:
         name: ${{ env.ARTIFACT_NAME }}-iac
         path: deploy/terraform/todo-webapp
 
-  staging:
+  stg:
     if: github.event_name != 'pull_request'
     environment: 
       name: stg
@@ -1104,4 +1105,212 @@ Now you've everything set up and your CI/CD pipeline is ready to be used on a da
 
 You can now make any change on your homepage (`src/TodoWebapp/Views/Shared/_Layout.cshtml`) and see your pipelines running and te new homepage being available on both Staging and Production environments.
 
-Congratulations! You just finished last lab on this DevOps Fundamentals training!
+## Clean up resoures
+
+Now is time to clean up you resources using Terraform to do it in a easy and faster way.
+
+Let's configure a new workflow that only runs manually and will delete all previously created resources.
+
+First, you need to update your local repo.
+
+```bash
+git checkout main
+
+git pull
+```
+
+Then create a new branch to add the clean up workflow.
+
+```bash
+git checkout -b add-cleanup-workflow
+```
+
+Add a new file named `cleanup.yml` on `.github/workflows` folder and add the following content.
+
+```yaml
+name: CleanUp
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: actions/upload-artifact@v3
+      with:
+        name: todoapp-iac
+        path: deploy/terraform
+
+  stg:
+    environment: 
+      name: stg
+    runs-on: ubuntu-latest
+    needs: build
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: todoapp-iac
+        path: ./terraform
+
+    - uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+
+    - name: terraform init api
+      run: |
+        cd ./terraform/todo-api
+        terraform init -backend-config="key=todoapp.webapi.stg.tfstate"
+
+    - name: terraform plan api
+      run: |
+        cd ./terraform/todo-api
+        terraform plan -destroy -var="dbPassword=${{ secrets.DB_PASSWORD}}" -var="env=stg"
+
+    - name: terraform destroy api
+      run: |
+        cd ./terraform/todo-api
+        terraform destroy -var="dbPassword=${{ secrets.DB_PASSWORD}}" -var="env=stg" -auto-approve
+
+    - name: terraform init webapp
+      run: |
+        cd ./terraform/todo-webapp
+        terraform init -backend-config="key=todoapp.webapp.stg.tfstate"
+
+    - name: terraform plan webapp
+      run: |
+        cd ./terraform/todo-webapp
+        terraform plan -destroy -var="env=stg"
+
+    - name: terraform destroy webapp
+      run: |
+        cd ./terraform/todo-webapp
+        terraform destroy  -var="env=stg" -auto-approve
+
+  prod:
+    environment: 
+      name: prod
+    runs-on: ubuntu-latest
+    needs: stg
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: todoapp-iac
+        path: ./terraform
+
+    - uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+
+    - name: terraform init api
+      run: |
+        cd ./terraform/todo-api
+        terraform init -backend-config="key=todoapp.webapi.prod.tfstate"
+
+    - name: terraform plan api
+      run: |
+        cd ./terraform/todo-api
+        terraform plan -destroy -var="dbPassword=${{ secrets.DB_PASSWORD}}" -var="env=prod"
+
+    - name: terraform destroy api
+      run: |
+        cd ./terraform/todo-api
+        terraform destroy -var="dbPassword=${{ secrets.DB_PASSWORD}}" -var="env=prod" -auto-approve
+
+    - name: terraform init webapp
+      run: |
+        cd ./terraform/todo-webapp
+        terraform init -backend-config="key=todoapp.webapp.prod.tfstate"
+
+    - name: terraform plan webapp
+      run: |
+        cd ./terraform/todo-webapp
+        terraform plan -destroy -var="env=prod"
+
+    - name: terraform destroy webapp
+      run: |
+        cd ./terraform/todo-webapp
+        terraform destroy -var="env=prod" -auto-approve
+```
+
+Let's check some parts of this file.
+
+```yaml
+on:
+  workflow_dispatch:
+```
+
+The trigger of this workflow is different from the previous ones since you only want to run it manually, so you don't have any reference for push or pull request events.
+
+Then let's take a look on Terraform actions.
+
+```yaml
+ - name: terraform init webapp
+   run: |
+    cd ./terraform/todo-webapp
+    terraform init -backend-config="key=todoapp.webapp.stg.tfstate"
+
+- name: terraform plan webapp
+  run: |
+    cd ./terraform/todo-webapp
+    terraform plan -destroy -var="env=stg"
+
+- name: terraform destroy webapp
+  run: |
+    cd ./terraform/todo-webapp
+    terraform destroy  -var="env=stg" -auto-approve
+```
+
+You'll execute 4 times `init > plan > destroy` cycle to delete all resources. Check that on `init` phase you're using the same `tfstate` file used on provisioning phase.
+
+Let's repeat the process to update your `main` branch.
+
+```bash
+git add -A
+
+git commit -m "Added clean up workflow"
+
+git push --set-upstream origin add-cleanup-workflow
+```
+
+Now that you have the branch on remote repo you need to create and complete your pull request.
+
+Try to do it by yourself and if needed, take a look on previous explanations about how to do it.
+
+To finalize, you need to execute manually your workflow.
+
+Navigate to `Actions` menu, select `CleanUp` workflow available on the list on the left and select `Run Workflow` as stated on below image.
+
+![Execute manually GH workflow](./images/lab02/image13.png "Execute manually GH workflow")
+
+Remember that you're still using GitHub environment to you need to approve the execution of `prod` stage to delete your production environment.
+
+After all your stage execute successfully you may have a screen like this.
+
+![Cleanup workflow run successfully](./images/lab02/image14.png "Cleanup workflow run successfully")
+
+Now you can go back to [Azure Portal](https://portal.azure.com/) and check that all resources previously created are now deleted and your subscription are clean.
+
+We've done this manually but the flow is exactly the same if you want to include provisioning and deletion of a temporary environment for testing purpose inside your full CI/CD pipeline
+
+## Congratulations
+
+You just finished last lab on this DevOps Fundamentals training! Hope this lab help you to have a good hands-on experience with Infra as Code and creating a full CI/CD pipeline!
