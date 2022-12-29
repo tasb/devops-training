@@ -15,6 +15,12 @@ variable "storageName" {
     }
 }
 
+variable "container" {
+    type = string
+    description = "Storage account container."
+    nullable = false
+}
+
 variable "location" {
     type = string
     description = "The Azure Region in which all resources in this example should be created."

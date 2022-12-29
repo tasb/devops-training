@@ -1,2 +1,3 @@
-rgName = "first-resource"
-storageName = "moongytasbstg"
+rgName = "tf-storage"
+storageName = "todoapptfbackend"
+container="tfstate"
