@@ -21,8 +21,8 @@
 
 1) terraform init
 2) terraform validate
-3) terraform plan
-4) terraform apply -var="dbPassword=P@ssw0rd" -auto-approve
+3) terraform plan -var="dbPassword=P@ssw0rd" -var="env=dev"
+4) terraform apply -var="dbPassword=P@ssw0rd" -var="env=dev" -auto-approve
 5) terraform destroy -auto-approve
 
 ## 3. Todo App GH
